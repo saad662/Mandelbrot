@@ -250,3 +250,83 @@ if __name__ == "__main__":
     np.save(f"{output}.npy", result)
 
     print(f"Saved fractal to {output}.npy")
+
+
+
+# ============================================================
+#  Added by Saad — Julia and Mandelbrot unified computation
+# ============================================================
+
+
+# --- add this to compute.py ---
+
+import numpy as np
+
+def compute_grid(mode: str,
+                 xmin: float, xmax: float, ymin: float, ymax: float,
+                 width: int, height: int,
+                 max_iters: int,
+                 c0: complex = None,
+                 method: str = "numpy",
+                 smoothing: bool = True):
+    """
+    Compute escape counts (or smoothed continuous escape values) for Mandelbrot or Julia.
+
+    mode: 'mandelbrot' or 'julia'
+    For 'julia', pass c0 (complex scalar). For 'mandelbrot' c0 must be None.
+    method: 'numpy' uses a plain numpy implementation. Other methods can be added later.
+    Returns: 2D numpy array shape (height, width) of floats.
+    """
+    # Basic argument checks
+    mode = mode.lower()
+    if mode not in ("mandelbrot", "julia"):
+        raise ValueError("mode must be 'mandelbrot' or 'julia'")
+
+    if mode == "julia" and c0 is None:
+        raise ValueError("c0 (complex) must be provided for Julia mode")
+
+    # Build coordinate grid (pixel centers). Note: y goes from top->bottom so we invert ys.
+    xs = np.linspace(xmin, xmax, width, dtype=np.float64)
+    ys = np.linspace(ymax, ymin, height, dtype=np.float64)  # inverted so top pixel = ymax
+    X, Y = np.meshgrid(xs, ys)
+    Z0 = X + 1j * Y
+
+    # Setup initial Z and C depending on mode
+    if mode == "mandelbrot":
+        C = Z0.copy()
+        Z = np.zeros_like(C)
+    else:  # julia
+        C = np.full_like(Z0, complex(c0))
+        Z = Z0.copy()
+
+    # Iteration arrays
+    iters = np.zeros(Z.shape, dtype=np.int32)
+    mask = np.ones(Z.shape, dtype=bool)  # points still being iterated
+
+    # Main loop (vectorized-ish)
+    for k in range(1, max_iters + 1):
+        Z[mask] = Z[mask] * Z[mask] + C[mask]
+        escaped = np.abs(Z) > 2.0
+        newly_escaped = escaped & mask
+        if newly_escaped.any():
+            iters[newly_escaped] = k
+        mask &= ~newly_escaped
+        if not mask.any():
+            break
+
+    # If smoothing, compute continuous escape values (so color mapping is smoother)
+    if smoothing:
+        absZ = np.abs(Z)
+        smooth = iters.astype(np.float64)
+        # Avoid log(0) warnings
+        escaped_mask = iters > 0
+        if np.any(escaped_mask):
+            # smooth: n + 1 - log(log|z|)/log 2
+            with np.errstate(divide='ignore', invalid='ignore'):
+                smooth_term = 1.0 - np.log(np.log(absZ[escaped_mask])) / np.log(2.0)
+            smooth[escaped_mask] = smooth[escaped_mask] + smooth_term
+        # For points that never escaped, set to max_iters (keep as boundary)
+        smooth[~escaped_mask] = float(max_iters)
+        return smooth
+    else:
+        return iters.astype(np.float64)

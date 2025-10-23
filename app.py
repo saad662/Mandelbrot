@@ -15,6 +15,8 @@ from mandelcomplex import MandelComplex
 from mandelnocomplex import MandelNoComplex
 from mandel_all import MandelbrotCalculator
 from coloring.plugin_loader import load_coloring_plugin
+from compute import compute_grid
+from colorize import colorize_julia
 
 
 # default values
@@ -254,6 +256,30 @@ pal = [
     "cubehelix_r",
 ]
 
+def show_julia(event):
+    # Example fixed Julia parameter
+    c0 = complex(-0.4, 0.6)
+
+    # Compute Julia set
+    width, height = 800, 600  # match your Mandelbrot display size
+    try:
+        max_iters = int(iterations)
+    except Exception:
+        max_iters = 256
+    julia_array = compute_grid('julia', -1.5, 1.5, -1.0, 1.0,
+                               width, height, max_iters, c0=c0)
+
+    # Colorize and save temporary PNG
+    julia_img = colorize_julia(julia_array, cmap_name="plasma",
+                               output_path="julia_gui.png", cycles=2)
+
+    # Display in a new figure window
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.imshow(julia_img)
+    ax.set_title(f"Julia Set for c = {c0}")
+    ax.axis('off')
+    plt.show()
 
 position = fig.add_axes([0.20, 0.35, 0.1, 0.1])
 pal_up = Button(position, "Prev")
@@ -261,6 +287,11 @@ position = fig.add_axes([0.20, 0.45, 0.1, 0.1])
 pal_down = Button(position, "Next")
 pal_up.on_clicked(handler_up)
 pal_down.on_clicked(handler_down)
+
+# --- Disable static Julia button (we use click instead) ---
+# ax_julia_btn = plt.axes([0.05, 0.35, 0.1, 0.075])
+# julia_button = Button(ax_julia_btn, 'Show Julia')
+# julia_button.on_clicked(show_julia)
 
 
 """
@@ -274,6 +305,69 @@ max_slider = CustomSlider(
   handler_max_slider
 )
 """
+
+
+# --- Dynamic Julia: click on Mandelbrot to show Julia for that point ---
+def on_mandel_click(event):
+
+    # get current axes limits from Mandelbrot view
+    xmin, xmax = event.inaxes.get_xlim()
+    ymin, ymax = event.inaxes.get_ylim()
+
+    # sometimes y-axis is inverted in imshow; correct if needed
+    if ymin > ymax:
+        ymin, ymax = ymax, ymin
+
+    # only respond to clicks inside an axes
+    if event.inaxes is None:
+        return
+
+    # event.xdata / event.ydata are already in data coordinates (the complex plane)
+    xdata = event.xdata
+    ydata = event.ydata
+    if xdata is None or ydata is None:
+        return
+
+    # build complex parameter from clicked position
+    c0 = complex(xdata, ydata)
+    print(f"Computing Julia for c = {c0.real:.4f} + {c0.imag:.4f}i ...")
+
+    # determine a sensible resolution from the currently-displayed image (if available)
+    try:
+        # event.inaxes.images[0] should be the AxesImage created by imshow; 
+        # its array shape is (height, width)
+        img = event.inaxes.images[0]
+        arr_shape = img.get_array().shape
+        height, width = arr_shape[0], arr_shape[1]
+    except Exception:
+        # fallback defaults
+        width, height = 800, 600
+
+    # Optionally: fetch current max iters from your UI state if you have it, otherwise default
+    try:
+        max_iters = int(iterations)  # if `iterations` variable exists in app.py
+    except Exception:
+        max_iters = 256
+
+    # Compute Julia set for clicked c0
+    julia_array = compute_grid(
+        'julia',
+        xmin, xmax, ymin, ymax,
+        width, height, max_iters, c0=c0
+    )
+
+    # Colorize and show (reuses the helper you added)
+    julia_img = colorize_julia(julia_array, cmap_name="plasma", output_path="julia_gui.png", cycles=2)
+
+    import matplotlib.pyplot as plt
+    fig_j, ax_j = plt.subplots(figsize=(8, 6))
+    ax_j.imshow(julia_img)
+    ax_j.set_title(f"Julia Set for c = {c0}")
+    ax_j.axis('off')
+    plt.show()
+
+# connect the handler: put this once during GUI setup (after figure/axes exist)
+fig.canvas.mpl_connect('button_press_event', on_mandel_click)
 
 
 # enable complex ------------------------------------------

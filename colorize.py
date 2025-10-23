@@ -313,6 +313,44 @@ def parse_arguments():
 def remove_file_endings(filename: str) -> str:
     return filename.removesuffix('.npy').removesuffix('.png')
 
+import numpy as np
+from PIL import Image
+
+def colorize_julia(array: np.ndarray,
+                   cmap_name: str = "viridis",
+                   output_path: str = "julia_preview.png",
+                   cycles: int = 1):
+    """
+    Convert a Julia computation array to a colorized image.
+
+    array: 2D numpy array from compute_grid()
+    cmap_name: name of a matplotlib colormap
+    output_path: where to save the PNG
+    cycles: how many times to repeat the colormap across range
+    """
+    import matplotlib.pyplot as plt
+
+    # Normalize iteration values to 0–1 range
+    arr = array.copy().astype(np.float64)
+    arr_min, arr_max = arr.min(), arr.max()
+    if arr_max == arr_min:
+        arr[:] = 0
+    else:
+        arr = (arr - arr_min) / (arr_max - arr_min)
+
+    # Apply colormap cycles
+    arr = (arr * cycles) % 1.0
+
+    # Get colormap from matplotlib
+    cmap = plt.get_cmap(cmap_name)
+    rgb = (cmap(arr)[:, :, :3] * 255).astype(np.uint8)  # remove alpha
+
+    # Save as image
+    img = Image.fromarray(rgb)
+    img.save(output_path)
+    print(f"Saved Julia image to {output_path}")
+    return img
+
 if __name__ == "__main__":
     #parse arguemts
     cmd_params = parse_arguments()
