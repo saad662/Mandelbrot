@@ -308,76 +308,61 @@ max_slider = CustomSlider(
 
 # --- Dynamic Julia: click on Mandelbrot to show Julia for that point ---
 def on_mandel_click(event):
-    # get current axes limits from Mandelbrot view
-    xmin, xmax = event.inaxes.get_xlim()
-    ymin, ymax = event.inaxes.get_ylim()
-
-    # sometimes y-axis is inverted in imshow; correct if needed
-    if ymin > ymax:
-        ymin, ymax = ymax, ymin
-
-    # only respond to clicks inside an axes
+    """Handle click on Mandelbrot figure to generate Julia set."""
     if event.inaxes is None:
-        return
+        return  # clicked outside the Mandelbrot plot
 
-    # --- get image size ---
+    ax = event.inaxes
+
+    # Try to read image dimensions
     try:
-        # Get the image shape (height, width) from the current Axes
-        img = event.inaxes.images[0]
+        img = ax.images[0]
         height, width = img.get_array().shape
     except Exception:
-        # Fallback if something goes wrong
-        width, height = 800, 600
+        width, height = 800, 800
 
-    # --- skip if click is outside axes ---
+    # --- get current Mandelbrot plane bounds ---
+    global current_x_min, current_x_max, current_y_min, current_y_max
+    xmin, xmax = current_x_min, current_x_max
+    ymin, ymax = current_y_min, current_y_max
+
+    # --- skip invalid clicks ---
     if event.xdata is None or event.ydata is None:
         return
 
-    # --- convert from pixel coords to normalized (0–1) ---
+    # --- convert from pixel coordinates (0..width/height) to normalized (0–1) ---
     x_norm = event.xdata / width
     y_norm = event.ydata / height
 
-    # --- map normalized to complex-plane coordinates ---
-    real = current_x_min + x_norm * (current_x_max - current_x_min)
-    imag = current_y_min + y_norm * (current_y_max - current_y_min)
+    # --- map normalized values to complex-plane coordinates ---
+    real = xmin + x_norm * (xmax - xmin)
+    imag = ymin + y_norm * (ymax - ymin)
     c0 = complex(real, imag)
 
-    print(f"Computing Julia for c = {c0.real:.6f} + {c0.imag:.6f}i ...")
+    print(f"\nComputing Julia for c = {c0.real:.6f} + {c0.imag:.6f}i ...")
 
-    # --- determine a sensible resolution from displayed image ---
-    try:
-        img = event.inaxes.images[0]
-        arr_shape = img.get_array().shape
-        height, width = arr_shape[0], arr_shape[1]
-    except Exception:
-        width, height = 800, 600
-
-    # --- get max iterations safely ---
-    try:
-        max_iters = int(iterations)
-    except Exception:
-        max_iters = 256
-
-    # --- compute Julia set for this c ---
     julia_array = compute_grid(
         'julia',
-        xmin, xmax, ymin, ymax,
-        width, height, max_iters, c0=c0
+        -1.5, 1.5,
+        -1.5, 1.5,
+        800, 800,
+        300,
+        c0=c0
     )
 
-    # --- colorize and show Julia ---
+    # --- colorize and display ---
     julia_img = colorize_julia(
         julia_array,
         cmap_name="plasma",
-        output_path="julia_gui.png",
+        output_path="julia_preview.png",
         cycles=2
     )
 
     import matplotlib.pyplot as plt
     fig_j, ax_j = plt.subplots(figsize=(8, 6))
-    ax_j.imshow(julia_img)
+    ax_j.imshow(julia_img, origin="lower", extent=(-1.5, 1.5, -1.5, 1.5))
     ax_j.set_title(f"Julia Set for c = {c0.real:.4f} + {c0.imag:.4f}i")
-    ax_j.axis('off')
+    ax_j.axis("off")
     plt.show(block=False)
 
 # connect the handler: put this once during GUI setup (after figure/axes exist)
