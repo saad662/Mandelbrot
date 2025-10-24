@@ -333,6 +333,10 @@ class MandelbrotExplorer(QMainWindow):
 
     def _init_video_panel(self):
 
+        # boundary preview
+        self.rect_boundary = None
+        self.render_bounds_show = False
+
         # self.video_panel
 
         # Dropdown for video mode selection
@@ -371,6 +375,9 @@ class MandelbrotExplorer(QMainWindow):
         # render start
         self.render_control_box = QGroupBox("Render Control")
         self.render_control_layout = QVBoxLayout()
+        # preview boundaries button
+        self.render_bounds_btn = QPushButton("Toggle Bounds") # the name gets adjusted  when used to better reflect current funtionality
+        self.render_control_layout.addWidget(self.render_bounds_btn)
         # last frame preview
         self.fig_vid = Figure(figsize=(2.5, 2), dpi=100)
         self.canvas_vid = FigureCanvas(self.fig_vid)
@@ -385,6 +392,7 @@ class MandelbrotExplorer(QMainWindow):
         action_layout.addWidget(self.render_start_btn)
         self.render_control_layout.addLayout(action_layout)
         # Connect buttons
+        self.render_bounds_btn.clicked.connect(self.handler_toggle_render_bounds)
         self.render_preview_btn.clicked.connect(self.handler_render_preview)
         self.render_start_btn.clicked.connect(self.handler_render_frames)
 
@@ -394,6 +402,9 @@ class MandelbrotExplorer(QMainWindow):
     # gui video creation area -----------------------------
 
     def _show_video_panel(self):
+        # show render bounds on main fig
+        self.handler_set_render_bounds(True)
+
         # panel
         self.main_layout.addWidget(self.video_panel)
 
@@ -416,6 +427,9 @@ class MandelbrotExplorer(QMainWindow):
                 self._show_render_settings_interpolation()
 
     def _hide_video_panel(self):
+        # hide render bounds on main fig
+        self.handler_set_render_bounds(False)
+
         # panel
         self.main_layout.removeWidget(self.video_panel)
 
@@ -477,10 +491,15 @@ class MandelbrotExplorer(QMainWindow):
         self.render_step_delta_scale_input = QDoubleSpinBox()
         self.render_step_delta_scale_input.setRange(0.000001, 50)  # Adjust range
         self.render_step_delta_scale_input.setValue(1)
+        self.render_step_delta_scale_input.setSingleStep(0.1)
         self.render_step_settings_gridlayout.addWidget(QLabel("Scale:"), 4, 0)
         self.render_step_settings_gridlayout.addWidget(
             self.render_step_delta_scale_input, 4, 1
         )
+        # change boundary preview whenever deltas get touched
+        self.render_step_delta_x_input.valueChanged.connect(self.handler_update_render_bounds_display)
+        self.render_step_delta_x_input.valueChanged.connect(self.handler_update_render_bounds_display)
+        self.render_step_delta_scale_input.valueChanged.connect(self.handler_update_render_bounds_display)
 
         self.render_step_settings_gridlayout.setRowStretch(
             self.render_step_settings_gridlayout.rowCount(), 1
@@ -520,6 +539,11 @@ class MandelbrotExplorer(QMainWindow):
         self.render_inter_settings_gridlayout.addWidget(
             self.render_inter_y_max_input, 2, 2
         )
+        # change boundary preview whenever roi gets touched
+        self.render_inter_x_min_input.valueChanged.connect(self.handler_update_render_bounds_display)
+        self.render_inter_x_max_input.valueChanged.connect(self.handler_update_render_bounds_display)
+        self.render_inter_y_min_input.valueChanged.connect(self.handler_update_render_bounds_display)
+        self.render_inter_y_max_input.valueChanged.connect(self.handler_update_render_bounds_display)
 
         self.render_inter_settings_gridlayout.addWidget(QLabel("Modes:"), 3, 0)
         self.render_inter_settings_gridlayout.addWidget(QLabel("Scale:"), 4, 0)
@@ -696,12 +720,9 @@ class MandelbrotExplorer(QMainWindow):
         self.node_compute.set_resolution(self.get_input_resolution())
         self.node_compute.set_threshold(self.get_input_threshold())
         self.node_compute.set_iterations(self.get_input_iterations())
+        self.node_compute.set_boundaries(self.get_input_boundaries())
 
-        # self.node_compute.set_boundaries(self.get_input_boundaries()) # causing issue with recompte, (when recompute is clicked after zoom in, this uses the default xmin, xmax, ymin, ymax values and the image gets displaced)
-
-    def set_reduced_computation_params(
-        self,
-    ) -> None:  # This method is for setting up a low res preview
+    def set_reduced_computation_params(self) -> None:  # This method is for setting up a low res preview
         self.node_compute.set_resolution(
             [100, 100]
         )  # we render at a set 100x100 pixels
@@ -784,6 +805,11 @@ class MandelbrotExplorer(QMainWindow):
         self.update_back_button_state()
 
     def set_image(self) -> None:
+        # close video editing area
+        if self.video_area_shown:
+            self._hide_video_panel()
+            self.video_area_shown = False
+
         """Refreshes the mpl canvas with current values"""
         self.ax.clear()
         self.ax.axis("off")
@@ -940,6 +966,117 @@ class MandelbrotExplorer(QMainWindow):
             case 1:
                 self._show_render_settings_interpolation()
 
+        self.handler_update_render_bounds_display()
+
+    def handler_toggle_render_bounds(self):
+        if (self.render_bounds_show):
+            self.handler_set_render_bounds(False)
+        else:
+            self.handler_set_render_bounds(True)
+
+    def handler_set_render_bounds(self, bounds_show: bool):
+        if (self.render_bounds_show == bounds_show):
+            return
+
+        if (bounds_show):
+            self.render_bounds_show = True
+        else:
+            self.render_bounds_show = False
+            # remove boundary preview & redraw
+            if self.rect_boundary:
+                self.rect_boundary.remove()
+                self.rect_boundary = None
+                self.fig.canvas.draw_idle()
+
+        self.handler_update_render_bounds_display() # display triggers also when show==false, because it updates button description
+
+    def handler_update_render_bounds_display(self):
+        if (self.render_bounds_show == False):
+            match self.render_mode_pos:
+                case 0:
+                    self.render_bounds_btn.setText("Show first delta bounds")
+                case 1:
+                    self.render_bounds_btn.setText("Show final bounds")
+            return
+
+        # clear previous
+        if self.rect_boundary:
+            self.rect_boundary.remove()
+            self.rect_boundary = None
+
+        # Draw a new boundary box
+        match self.render_mode_pos:
+                case 0:
+                    self.render_bounds_btn.setText("Hide first delta bounds")
+                    
+                    current_x_min = float(self.roi_xmin_input.value())
+                    current_x_max = float(self.roi_xmax_input.value())
+                    current_y_min = float(self.roi_ymin_input.value())
+                    current_y_max = float(self.roi_ymax_input.value())
+                    current_roi_width = current_x_max - current_x_min
+                    current_roi_height = current_y_max - current_y_min
+                    current_res_width = self.res_width_input.value()
+                    current_res_height = self.res_height_input.value()
+                    bound_scale_delta = float(self.render_step_delta_scale_input.value())
+
+                    rect_x_min = (float(self.render_step_delta_x_input.value()) / current_roi_width + (1-bound_scale_delta)/2) * current_res_width
+                    rect_y_min = (float(self.render_step_delta_y_input.value()) / current_roi_height + (1-bound_scale_delta)/2) * current_res_height
+                    rect_width = bound_scale_delta * current_res_width
+                    rect_height = bound_scale_delta * current_res_height
+
+
+                    self.rect_boundary = self.ax.add_patch(
+                        plt.patches.Rectangle(
+                            (rect_x_min, rect_y_min),
+                            rect_width,
+                            rect_height,
+                            facecolor="orange",
+                            alpha=0.5,
+                            edgecolor="orange",
+                            linestyle=":",
+                            linewidth=1.5,
+                        )
+                    )
+                case 1:
+                    self.render_bounds_btn.setText("Hide final bounds")
+
+                    # get corners of boundary box coordinates
+                    bound_x_min = float(self.render_inter_x_min_input.value())
+                    bound_x_max = float(self.render_inter_x_max_input.value())
+                    bound_y_min = float(self.render_inter_y_min_input.value())
+                    bound_y_max = float(self.render_inter_y_max_input.value())
+
+                    # translate coordinates into plot dimensions
+                    current_x_min = float(self.roi_xmin_input.value())
+                    current_x_max = float(self.roi_xmax_input.value())
+                    current_y_min = float(self.roi_ymin_input.value())
+                    current_y_max = float(self.roi_ymax_input.value())
+                    current_roi_width = current_x_max - current_x_min
+                    current_roi_height = current_y_max - current_y_min
+                    current_res_width = self.res_width_input.value()
+                    current_res_height = self.res_height_input.value()
+
+                    rect_x_min = (bound_x_min - current_x_min) / current_roi_width * current_res_width
+                    rect_y_min = (bound_y_min - current_y_min) / current_roi_height * current_res_height
+                    rect_width = (bound_x_max - bound_x_min) / current_roi_width * current_res_width
+                    rect_height = (bound_y_max - bound_y_min) / current_roi_height * current_res_height
+
+                    self.rect_boundary = self.ax.add_patch(
+                        plt.patches.Rectangle(
+                            (rect_x_min, rect_y_min),
+                            rect_width,
+                            rect_height,
+                            facecolor="orange",
+                            alpha=0.5,
+                            edgecolor="orange",
+                            linestyle=":",
+                            linewidth=1.5,
+                        )
+                    )
+        self.fig.canvas.draw_idle()
+
+
+    
     def handler_render_preview(self):
         # render & display a small preview of the last frame with current settings
         if (
